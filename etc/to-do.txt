@@ -1,0 +1,5 @@
+- https://www.github.developerdan.com/hosts/
+- https://github.com/mrxehmad/pi-hole-adlist
+- https://github.com/gieljnssns/Social-media-Blocklists
+- https://github.com/Perflyst/PiHoleBlocklist
+- https://github.com/zachlagden/Pi-hole-Optimized-Blocklists
