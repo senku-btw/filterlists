@@ -4,5 +4,6 @@
 
 ```
 https://big.oisd.nl
+https://small.oisd.nl
 https://nsfw.oisd.nl
 ```
