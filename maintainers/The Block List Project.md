@@ -22,7 +22,6 @@ https://blocklistproject.github.io/Lists/crypto.txt
 https://blocklistproject.github.io/Lists/abuse.txt
 https://blocklistproject.github.io/Lists/ads.txt
 https://blocklistproject.github.io/Lists/whatsapp.txt
-https://blocklistproject.github.io/Lists/vaping.txt
 https://blocklistproject.github.io/Lists/basic.txt
 https://blocklistproject.github.io/Lists/smart-tv.txt
 ```
