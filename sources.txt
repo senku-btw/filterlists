@@ -6,3 +6,4 @@ Sefinek - https://blocklist.sefinek.net
 StevenBlack - https://github.com/stevenblack/hosts
 The Block List Project - https://github.com/blocklistproject/Lists
 The Firebog - https://firebog.net
+senku-btw - https://github.com/senku-btw
