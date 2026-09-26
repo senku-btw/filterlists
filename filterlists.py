@@ -7,6 +7,7 @@ Features: Atomic writes, mutex locking, database retry logic, idempotency, and a
 import fcntl
 import logging
 import os
+import secrets
 import sqlite3
 import subprocess
 import sys
@@ -222,9 +223,8 @@ def write_markdown_files(
 
 
 def push_to_github(repo_dir: Path) -> None:
-    """Commits and pushes changes to the Git repository autonomously."""
+    """Commits and pushes changes to the Git repository autonomously using a random hex message."""
     try:
-        # Verify if there are actual tracked/untracked changes
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=repo_dir,
@@ -238,17 +238,17 @@ def push_to_github(repo_dir: Path) -> None:
 
         logger.info("Git Status: Changes detected. Initiating automated commit.")
         
-        # Add changes with timeout to prevent hanging
+        # Add changes
         subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, timeout=10)
         
-        # Commit changes
-        commit_msg = f"Automated blocklist update: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        # Generate 6-character random hex string for commit message
+        commit_msg = secrets.token_hex(3)
         subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True, timeout=10)
         
-        # Push changes (requires SSH keys or PAT configured in the environment)
+        # Push changes 
         subprocess.run(["git", "push"], cwd=repo_dir, check=True, timeout=30)
         
-        logger.info("Git Push: Successfully synchronized updates to GitHub.")
+        logger.info("Git Push: Successfully synchronized updates to GitHub with commit %s.", commit_msg)
 
     except subprocess.TimeoutExpired as err:
         logger.error("Git operation timed out: %s", err)
@@ -290,10 +290,8 @@ def main() -> None:
 
         categorized_data = categorize_blocklists(adlists, sources_dict)
         
-        # Write files and capture if any updates actually hit the disk
         files_updated = write_markdown_files(categorized_data, sources_dict, output_dir)
 
-        # Trigger Git sync if mutations occurred
         if files_updated:
             push_to_github(script_dir)
         else:
