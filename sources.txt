@@ -1,0 +1,8 @@
+1Hosts - https://badmojr.github.io/1Hosts
+Energized - https://github.com/EnergizedProtection/EnergizedHosts
+Hagezi - https://github.com/hagezi/dns-blocklists
+OISD - https://oisd.nl
+Sefinek - https://blocklist.sefinek.net
+StevenBlack - https://github.com/stevenblack/hosts
+The Block List Project - https://github.com/blocklistproject/Lists
+The Firebog - https://firebog.net
