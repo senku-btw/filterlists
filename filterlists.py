@@ -20,7 +20,7 @@ DB_PATH = os.getenv(
     "EXTRACTOR_DB_PATH",
     "/mnt/dietpi_userdata/docker/primary-stack/pihole/etc-pihole/gravity.db",
 )
-OUTPUT_DIR_NAME = os.getenv("EXTRACTOR_OUTPUT_DIR", "maintainer_blocklists")
+OUTPUT_DIR_NAME = os.getenv("EXTRACTOR_OUTPUT_DIR", "maintainers")
 LOCK_FILE = "/tmp/pihole_extractor.lock"
 
 # Initialize standard logging
