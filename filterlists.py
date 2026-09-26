@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple
 SOURCES_FILENAME = os.getenv("EXTRACTOR_SOURCES_FILE", "sources.txt")
 DB_PATH = os.getenv(
     "EXTRACTOR_DB_PATH",
-    "/mnt/dietpi_userdata/docker/primary-stack/pihole/etc-pihole/gravity.db"
+    "/mnt/dietpi_userdata/docker/primary-stack/pihole/etc-pihole/gravity.db",
 )
 OUTPUT_DIR_NAME = os.getenv("EXTRACTOR_OUTPUT_DIR", "maintainer_blocklists")
 LOCK_FILE = "/tmp/pihole_extractor.lock"
@@ -26,8 +26,8 @@ LOCK_FILE = "/tmp/pihole_extractor.lock"
 # Initialize standard logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(process)d] - %(module)s.%(funcName)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - [%(process)d] - %(module)s.%(funcName)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,9 @@ def acquire_mutex_lock(lock_path: str) -> int:
         logger.debug("Mutex lock acquired successfully.")
         return lock_fd
     except BlockingIOError:
-        logger.error("Another instance is currently running. Exiting to prevent race conditions.")
+        logger.error(
+            "Another instance is currently running. Exiting to prevent race conditions."
+        )
         sys.exit(0)
     except OSError as err:
         logger.error("Failed to acquire lock at %s: %s", lock_path, err)
@@ -50,7 +52,9 @@ def acquire_mutex_lock(lock_path: str) -> int:
 def verify_file_exists(file_path: Path, file_description: str) -> None:
     """Verifies the existence of a critical file before proceeding."""
     if not file_path.is_file():
-        logger.error("Critical file missing: %s not found at %s", file_description, file_path)
+        logger.error(
+            "Critical file missing: %s not found at %s", file_description, file_path
+        )
         sys.exit(1)
 
 
@@ -68,13 +72,13 @@ def parse_sources_file(sources_path: Path) -> Dict[str, str]:
     """Parses the sources.txt file into a dictionary mapping maintainer names to URLs."""
     sources: Dict[str, str] = {}
     try:
-        with sources_path.open('r', encoding='utf-8') as file_obj:
+        with sources_path.open("r", encoding="utf-8") as file_obj:
             for line_number, line in enumerate(file_obj, start=1):
                 line = line.strip()
-                if not line or line.startswith('#') or '-' not in line:
+                if not line or line.startswith("#") or "-" not in line:
                     continue
 
-                parts = line.split('-', 1)
+                parts = line.split("-", 1)
                 if len(parts) == 2:
                     name = parts[0].strip()
                     url = parts[1].strip()
@@ -82,7 +86,7 @@ def parse_sources_file(sources_path: Path) -> Dict[str, str]:
                 else:
                     logger.warning(
                         "Malformed entry in sources.txt at line %d. Skipping.",
-                        line_number
+                        line_number,
                     )
         return sources
     except IOError as err:
@@ -90,7 +94,9 @@ def parse_sources_file(sources_path: Path) -> Dict[str, str]:
         sys.exit(1)
 
 
-def fetch_blocklists_from_db(db_path: Path, max_retries: int = 5) -> List[Tuple[str, str]]:
+def fetch_blocklists_from_db(
+    db_path: Path, max_retries: int = 5
+) -> List[Tuple[str, str]]:
     """Connects to the SQLite database with exponential backoff to handle temporary locks."""
     adlists: List[Tuple[str, str]] = []
 
@@ -112,10 +118,12 @@ def fetch_blocklists_from_db(db_path: Path, max_retries: int = 5) -> List[Tuple[
 
         except sqlite3.OperationalError as err:
             if "locked" in str(err).lower() and attempt < max_retries:
-                sleep_time = 2 ** attempt
+                sleep_time = 2**attempt
                 logger.warning(
                     "Database locked. Retrying in %d seconds (Attempt %d/%d)...",
-                    sleep_time, attempt, max_retries
+                    sleep_time,
+                    attempt,
+                    max_retries,
                 )
                 time.sleep(sleep_time)
             else:
@@ -125,15 +133,14 @@ def fetch_blocklists_from_db(db_path: Path, max_retries: int = 5) -> List[Tuple[
             logger.error("Fatal database error: %s", err)
             sys.exit(1)
         finally:
-            if 'conn' in locals():
+            if "conn" in locals():
                 conn.close()
 
     return adlists
 
 
 def categorize_blocklists(
-    adlists: List[Tuple[str, str]],
-    sources: Dict[str, str]
+    adlists: List[Tuple[str, str]], sources: Dict[str, str]
 ) -> Dict[str, List[str]]:
     """Cross-references database comments with sources to categorize URLs by maintainer."""
     categorized: Dict[str, List[str]] = {maintainer: [] for maintainer in sources}
@@ -153,7 +160,7 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
     # Idempotency check: Skip write if content is unchanged
     if file_path.exists():
         try:
-            with file_path.open('r', encoding='utf-8') as file_obj:
+            with file_path.open("r", encoding="utf-8") as file_obj:
                 if file_obj.read() == content:
                     return False
         except IOError:
@@ -162,7 +169,7 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
     # Atomic write: Write to temp file, then rename (POSIX guarantees atomic rename)
     file_descriptor, tmp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
     try:
-        with os.fdopen(file_descriptor, 'w', encoding='utf-8') as file_obj:
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_obj:
             file_obj.write(content)
         os.replace(tmp_path, file_path)
         file_path.chmod(0o644)
@@ -177,9 +184,7 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
 
 
 def write_markdown_files(
-    categorized_data: Dict[str, List[str]],
-    sources: Dict[str, str],
-    output_dir: Path
+    categorized_data: Dict[str, List[str]], sources: Dict[str, str], output_dir: Path
 ) -> None:
     """Generates Markdown files iteratively for each categorized maintainer."""
     updated_count = 0
@@ -192,8 +197,8 @@ def write_markdown_files(
         maintainer_url = sources.get(maintainer, "#")
 
         # Break up string operations to respect the 100-character line limit
-        valid_chars = [c for c in maintainer if c.isalnum() or c == ' ']
-        safe_filename = "".join(valid_chars).rstrip().replace(' ', '_') + ".md"
+        valid_chars = [c for c in maintainer if c.isalnum() or c == " "]
+        safe_filename = "".join(valid_chars).rstrip().replace(" ", "_") + ".md"
         file_path = output_dir / safe_filename
 
         # Build strict markdown structure
@@ -212,7 +217,8 @@ def write_markdown_files(
 
     logger.info(
         "Disk Operations: %d files updated, %d files skipped (unchanged).",
-        updated_count, skipped_count
+        updated_count,
+        skipped_count,
     )
 
 
