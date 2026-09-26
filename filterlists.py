@@ -4,13 +4,13 @@ Enterprise-grade Pi-hole Gravity DB Blocklist Extractor.
 Features: Atomic writes, mutex locking, database retry logic, and idempotency.
 """
 
-import os
-import sys
-import time
 import fcntl
-import sqlite3
 import logging
+import os
+import sqlite3
+import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
