@@ -231,7 +231,7 @@ def push_to_github(repo_dir: Path) -> None:
             cwd=repo_dir,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         if not status.stdout.strip():
             logger.info("Git Status: No changes detected. Skipping push.")
@@ -244,7 +244,9 @@ def push_to_github(repo_dir: Path) -> None:
 
         # Generate 6-character random hex string for commit message
         commit_msg = secrets.token_hex(3)
-        subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True, timeout=10)
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True, timeout=10
+        )
 
         # Push changes
         subprocess.run(["git", "push"], cwd=repo_dir, check=True, timeout=30)
@@ -260,7 +262,7 @@ def push_to_github(repo_dir: Path) -> None:
         logger.error(
             "Git operation failed. Command: %s | Error: %s",
             " ".join(err.cmd),
-            err.stderr or err.stdout
+            err.stderr or err.stdout,
         )
     except FileNotFoundError:
         logger.error("Git executable not found in system path. Skipping push.")
