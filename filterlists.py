@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Enterprise-grade Pi-hole Gravity DB Blocklist Extractor with GitHub Integration.
-Features: Atomic writes, mutex locking, database retry logic, idempotency, and autonomous Git pushing.
+Features: Atomic writes, mutex locking, database retry logic, idempotency,
+and autonomous Git pushing.
 """
 
 import fcntl
@@ -164,7 +165,7 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
                 if file_obj.read() == content:
                     return False
         except IOError:
-            pass 
+            pass
 
     file_descriptor, tmp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
     try:
@@ -237,25 +238,28 @@ def push_to_github(repo_dir: Path) -> None:
             return
 
         logger.info("Git Status: Changes detected. Initiating automated commit.")
-        
+
         # Add changes
         subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, timeout=10)
-        
+
         # Generate 6-character random hex string for commit message
         commit_msg = secrets.token_hex(3)
         subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True, timeout=10)
-        
-        # Push changes 
+
+        # Push changes
         subprocess.run(["git", "push"], cwd=repo_dir, check=True, timeout=30)
-        
-        logger.info("Git Push: Successfully synchronized updates to GitHub with commit %s.", commit_msg)
+
+        logger.info(
+            "Git Push: Successfully synchronized updates to GitHub with commit %s.",
+            commit_msg,
+        )
 
     except subprocess.TimeoutExpired as err:
         logger.error("Git operation timed out: %s", err)
     except subprocess.CalledProcessError as err:
         logger.error(
-            "Git operation failed. Command: %s | Error: %s", 
-            " ".join(err.cmd), 
+            "Git operation failed. Command: %s | Error: %s",
+            " ".join(err.cmd),
             err.stderr or err.stdout
         )
     except FileNotFoundError:
@@ -289,7 +293,7 @@ def main() -> None:
             sys.exit(0)
 
         categorized_data = categorize_blocklists(adlists, sources_dict)
-        
+
         files_updated = write_markdown_files(categorized_data, sources_dict, output_dir)
 
         if files_updated:
