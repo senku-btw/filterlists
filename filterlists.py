@@ -16,7 +16,10 @@ from typing import Dict, List, Tuple
 
 # Configuration Constants (Supports Environment Variable Overrides)
 SOURCES_FILENAME = os.getenv("EXTRACTOR_SOURCES_FILE", "sources.txt")
-DB_PATH = os.getenv("EXTRACTOR_DB_PATH", "/mnt/dietpi_userdata/docker/primary-stack/pihole/etc-pihole/gravity.db")
+DB_PATH = os.getenv(
+    "EXTRACTOR_DB_PATH",
+    "/mnt/dietpi_userdata/docker/primary-stack/pihole/etc-pihole/gravity.db"
+)
 OUTPUT_DIR_NAME = os.getenv("EXTRACTOR_OUTPUT_DIR", "maintainer_blocklists")
 LOCK_FILE = "/tmp/pihole_extractor.lock"
 
@@ -24,9 +27,7 @@ LOCK_FILE = "/tmp/pihole_extractor.lock"
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(process)d] - %(module)s.%(funcName)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,15 @@ def acquire_mutex_lock(lock_path: str) -> int:
     except BlockingIOError:
         logger.error("Another instance is currently running. Exiting to prevent race conditions.")
         sys.exit(0)
-    except OSError as e:
-        logger.error(f"Failed to acquire lock at {lock_path}: {e}")
+    except OSError as err:
+        logger.error("Failed to acquire lock at %s: %s", lock_path, err)
         sys.exit(1)
 
 
 def verify_file_exists(file_path: Path, file_description: str) -> None:
     """Verifies the existence of a critical file before proceeding."""
     if not file_path.is_file():
-        logger.error(f"Critical file missing: {file_description} not found at {file_path}")
+        logger.error("Critical file missing: %s not found at %s", file_description, file_path)
         sys.exit(1)
 
 
@@ -58,8 +59,8 @@ def ensure_output_directory(dir_path: Path) -> None:
     try:
         dir_path.mkdir(parents=True, exist_ok=True)
         dir_path.chmod(0o755)
-    except OSError as e:
-        logger.error(f"Failed to create output directory {dir_path}: {e}")
+    except OSError as err:
+        logger.error("Failed to create output directory %s: %s", dir_path, err)
         sys.exit(1)
 
 
@@ -67,100 +68,107 @@ def parse_sources_file(sources_path: Path) -> Dict[str, str]:
     """Parses the sources.txt file into a dictionary mapping maintainer names to URLs."""
     sources: Dict[str, str] = {}
     try:
-        with sources_path.open('r', encoding='utf-8') as f:
-            for line_number, line in enumerate(f, start=1):
+        with sources_path.open('r', encoding='utf-8') as file_obj:
+            for line_number, line in enumerate(file_obj, start=1):
                 line = line.strip()
                 if not line or line.startswith('#') or '-' not in line:
                     continue
-                
+
                 parts = line.split('-', 1)
                 if len(parts) == 2:
                     name = parts[0].strip()
                     url = parts[1].strip()
                     sources[name] = url
                 else:
-                    logger.warning(f"Malformed entry in sources.txt at line {line_number}. Skipping.")
+                    logger.warning(
+                        "Malformed entry in sources.txt at line %d. Skipping.",
+                        line_number
+                    )
         return sources
-    except IOError as e:
-        logger.error(f"Failed to read sources file {sources_path}: {e}")
+    except IOError as err:
+        logger.error("Failed to read sources file %s: %s", sources_path, err)
         sys.exit(1)
 
 
 def fetch_blocklists_from_db(db_path: Path, max_retries: int = 5) -> List[Tuple[str, str]]:
-    """
-    Connects to the SQLite database with exponential backoff to handle temporary locks.
-    """
+    """Connects to the SQLite database with exponential backoff to handle temporary locks."""
     adlists: List[Tuple[str, str]] = []
-    
+
     for attempt in range(1, max_retries + 1):
         try:
             # uri=True and mode=ro ensures read-only mode. timeout=10 waits for internal locks.
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
             cursor = conn.cursor()
-            
+
             cursor.execute("SELECT address, comment FROM adlist WHERE enabled = 1;")
             rows = cursor.fetchall()
-            
+
             for row in rows:
                 address = str(row[0]).strip() if row[0] else ""
                 comment = str(row[1]).strip() if row[1] else ""
                 if address:
                     adlists.append((address, comment))
             return adlists
-            
-        except sqlite3.OperationalError as e:
-            if "locked" in str(e).lower() and attempt < max_retries:
+
+        except sqlite3.OperationalError as err:
+            if "locked" in str(err).lower() and attempt < max_retries:
                 sleep_time = 2 ** attempt
-                logger.warning(f"Database locked. Retrying in {sleep_time} seconds (Attempt {attempt}/{max_retries})...")
+                logger.warning(
+                    "Database locked. Retrying in %d seconds (Attempt %d/%d)...",
+                    sleep_time, attempt, max_retries
+                )
                 time.sleep(sleep_time)
             else:
-                logger.error(f"Database operational error on {db_path}: {e}")
+                logger.error("Database operational error on %s: %s", db_path, err)
                 sys.exit(1)
-        except sqlite3.Error as e:
-            logger.error(f"Fatal database error: {e}")
+        except sqlite3.Error as err:
+            logger.error("Fatal database error: %s", err)
             sys.exit(1)
         finally:
             if 'conn' in locals():
                 conn.close()
-                
+
     return adlists
 
 
-def categorize_blocklists(adlists: List[Tuple[str, str]], sources: Dict[str, str]) -> Dict[str, List[str]]:
+def categorize_blocklists(
+    adlists: List[Tuple[str, str]],
+    sources: Dict[str, str]
+) -> Dict[str, List[str]]:
     """Cross-references database comments with sources to categorize URLs by maintainer."""
-    categorized: Dict[str, List[str]] = {maintainer: [] for maintainer in sources.keys()}
-    
+    categorized: Dict[str, List[str]] = {maintainer: [] for maintainer in sources}
+
     for url, comment in adlists:
         if comment in sources:
             categorized[comment].append(url)
-            
+
     return categorized
 
 
 def atomic_write_markdown(file_path: Path, content: str) -> bool:
     """
-    Writes data atomically and idempotently. 
+    Writes data atomically and idempotently.
     Returns True if a write occurred, False if the file already matches the content.
     """
     # Idempotency check: Skip write if content is unchanged
     if file_path.exists():
         try:
-            with file_path.open('r', encoding='utf-8') as f:
-                if f.read() == content:
+            with file_path.open('r', encoding='utf-8') as file_obj:
+                if file_obj.read() == content:
                     return False
         except IOError:
-            pass # Proceed to overwrite if read fails
+            pass  # Proceed to overwrite if read fails
 
     # Atomic write: Write to temp file, then rename (POSIX guarantees atomic rename)
-    fd, tmp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
+    file_descriptor, tmp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(content)
+        with os.fdopen(file_descriptor, 'w', encoding='utf-8') as file_obj:
+            file_obj.write(content)
         os.replace(tmp_path, file_path)
         file_path.chmod(0o644)
         return True
-    except OSError as e:
-        logger.error(f"Failed atomic write to {file_path}: {e}")
+    except OSError as err:
+        logger.error("Failed atomic write to %s: %s", file_path, err)
         try:
             os.remove(tmp_path)
         except OSError:
@@ -168,43 +176,53 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
         raise
 
 
-def write_markdown_files(categorized_data: Dict[str, List[str]], sources: Dict[str, str], output_dir: Path) -> None:
+def write_markdown_files(
+    categorized_data: Dict[str, List[str]],
+    sources: Dict[str, str],
+    output_dir: Path
+) -> None:
     """Generates Markdown files iteratively for each categorized maintainer."""
     updated_count = 0
     skipped_count = 0
-    
+
     for maintainer, urls in categorized_data.items():
         if not urls:
             continue
-            
+
         maintainer_url = sources.get(maintainer, "#")
-        safe_filename = "".join([c for c in maintainer if c.isalnum() or c == ' ']).rstrip()
-        safe_filename = safe_filename.replace(' ', '_') + ".md"
+
+        # Break up string operations to respect the 100-character line limit
+        valid_chars = [c for c in maintainer if c.isalnum() or c == ' ']
+        safe_filename = "".join(valid_chars).rstrip().replace(' ', '_') + ".md"
         file_path = output_dir / safe_filename
-        
+
         # Build strict markdown structure
         markdown_content = f"# [{maintainer}]({maintainer_url})\n\n<br>\n\n```\n"
         markdown_content += "\n".join(sorted(urls))
         markdown_content += "\n```\n"
-        
+
         try:
             if atomic_write_markdown(file_path, markdown_content):
                 updated_count += 1
             else:
                 skipped_count += 1
-        except Exception:
-            continue # Error already logged in atomic_write_markdown
-            
-    logger.info(f"Disk Operations: {updated_count} files updated, {skipped_count} files skipped (unchanged).")
+        except OSError:
+            # Error already logged in atomic_write_markdown, avoiding broad Exception catch
+            continue
+
+    logger.info(
+        "Disk Operations: %d files updated, %d files skipped (unchanged).",
+        updated_count, skipped_count
+    )
 
 
 def main() -> None:
     """Main execution orchestrator."""
     start_time = time.perf_counter()
-    
+
     # 0. Acquire Mutex Lock (Ensures singleton execution)
     lock_fd = acquire_mutex_lock(LOCK_FILE)
-    
+
     try:
         # Define paths relative to execution context
         script_dir = Path(__file__).resolve().parent
@@ -231,10 +249,10 @@ def main() -> None:
         # 3. Data Processing & Output
         categorized_data = categorize_blocklists(adlists, sources_dict)
         write_markdown_files(categorized_data, sources_dict, output_dir)
-        
+
         elapsed_time = time.perf_counter() - start_time
-        logger.info(f"Protocol completed successfully in {elapsed_time:.3f} seconds.")
-        
+        logger.info("Protocol completed successfully in %.3f seconds.", elapsed_time)
+
     finally:
         # Ensure lock is released even if the script crashes
         os.close(lock_fd)
