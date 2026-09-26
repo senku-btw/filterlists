@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Enterprise-grade Pi-hole Gravity DB Blocklist Extractor.
-Features: Atomic writes, mutex locking, database retry logic, and idempotency.
+Enterprise-grade Pi-hole Gravity DB Blocklist Extractor with GitHub Integration.
+Features: Atomic writes, mutex locking, database retry logic, idempotency, and autonomous Git pushing.
 """
 
 import fcntl
 import logging
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -102,7 +103,6 @@ def fetch_blocklists_from_db(
 
     for attempt in range(1, max_retries + 1):
         try:
-            # uri=True and mode=ro ensures read-only mode. timeout=10 waits for internal locks.
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
             cursor = conn.cursor()
 
@@ -157,16 +157,14 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
     Writes data atomically and idempotently.
     Returns True if a write occurred, False if the file already matches the content.
     """
-    # Idempotency check: Skip write if content is unchanged
     if file_path.exists():
         try:
             with file_path.open("r", encoding="utf-8") as file_obj:
                 if file_obj.read() == content:
                     return False
         except IOError:
-            pass  # Proceed to overwrite if read fails
+            pass 
 
-    # Atomic write: Write to temp file, then rename (POSIX guarantees atomic rename)
     file_descriptor, tmp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
     try:
         with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_obj:
@@ -185,8 +183,11 @@ def atomic_write_markdown(file_path: Path, content: str) -> bool:
 
 def write_markdown_files(
     categorized_data: Dict[str, List[str]], sources: Dict[str, str], output_dir: Path
-) -> None:
-    """Generates Markdown files iteratively for each categorized maintainer."""
+) -> bool:
+    """
+    Generates Markdown files iteratively for each categorized maintainer.
+    Returns True if any files were updated, False otherwise.
+    """
     updated_count = 0
     skipped_count = 0
 
@@ -196,12 +197,10 @@ def write_markdown_files(
 
         maintainer_url = sources.get(maintainer, "#")
 
-        # Break up string operations to respect the 100-character line limit
         valid_chars = [c for c in maintainer if c.isalnum() or c == " "]
         safe_filename = "".join(valid_chars).rstrip().replace(" ", "_") + ".md"
         file_path = output_dir / safe_filename
 
-        # Build strict markdown structure
         markdown_content = f"# [{maintainer}]({maintainer_url})\n\n<br>\n\n```\n"
         markdown_content += "\n".join(sorted(urls))
         markdown_content += "\n```\n"
@@ -212,7 +211,6 @@ def write_markdown_files(
             else:
                 skipped_count += 1
         except OSError:
-            # Error already logged in atomic_write_markdown, avoiding broad Exception catch
             continue
 
     logger.info(
@@ -220,28 +218,66 @@ def write_markdown_files(
         updated_count,
         skipped_count,
     )
+    return updated_count > 0
+
+
+def push_to_github(repo_dir: Path) -> None:
+    """Commits and pushes changes to the Git repository autonomously."""
+    try:
+        # Verify if there are actual tracked/untracked changes
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if not status.stdout.strip():
+            logger.info("Git Status: No changes detected. Skipping push.")
+            return
+
+        logger.info("Git Status: Changes detected. Initiating automated commit.")
+        
+        # Add changes with timeout to prevent hanging
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, timeout=10)
+        
+        # Commit changes
+        commit_msg = f"Automated blocklist update: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_dir, check=True, timeout=10)
+        
+        # Push changes (requires SSH keys or PAT configured in the environment)
+        subprocess.run(["git", "push"], cwd=repo_dir, check=True, timeout=30)
+        
+        logger.info("Git Push: Successfully synchronized updates to GitHub.")
+
+    except subprocess.TimeoutExpired as err:
+        logger.error("Git operation timed out: %s", err)
+    except subprocess.CalledProcessError as err:
+        logger.error(
+            "Git operation failed. Command: %s | Error: %s", 
+            " ".join(err.cmd), 
+            err.stderr or err.stdout
+        )
+    except FileNotFoundError:
+        logger.error("Git executable not found in system path. Skipping push.")
 
 
 def main() -> None:
     """Main execution orchestrator."""
     start_time = time.perf_counter()
 
-    # 0. Acquire Mutex Lock (Ensures singleton execution)
     lock_fd = acquire_mutex_lock(LOCK_FILE)
 
     try:
-        # Define paths relative to execution context
         script_dir = Path(__file__).resolve().parent
         sources_path = script_dir / SOURCES_FILENAME
         db_path = Path(DB_PATH)
         output_dir = script_dir / OUTPUT_DIR_NAME
 
-        # 1. Environment Verification
         verify_file_exists(sources_path, "Maintainer sources file")
         verify_file_exists(db_path, "Pi-hole Gravity Database")
         ensure_output_directory(output_dir)
 
-        # 2. Data Ingestion
         sources_dict = parse_sources_file(sources_path)
         if not sources_dict:
             logger.error("No valid entries found in sources.txt. Terminating.")
@@ -252,15 +288,21 @@ def main() -> None:
             logger.warning("No blocklists found in database. Terminating gracefully.")
             sys.exit(0)
 
-        # 3. Data Processing & Output
         categorized_data = categorize_blocklists(adlists, sources_dict)
-        write_markdown_files(categorized_data, sources_dict, output_dir)
+        
+        # Write files and capture if any updates actually hit the disk
+        files_updated = write_markdown_files(categorized_data, sources_dict, output_dir)
+
+        # Trigger Git sync if mutations occurred
+        if files_updated:
+            push_to_github(script_dir)
+        else:
+            logger.info("Bypassing GitHub synchronization due to zero file mutations.")
 
         elapsed_time = time.perf_counter() - start_time
         logger.info("Protocol completed successfully in %.3f seconds.", elapsed_time)
 
     finally:
-        # Ensure lock is released even if the script crashes
         os.close(lock_fd)
         try:
             os.remove(LOCK_FILE)
